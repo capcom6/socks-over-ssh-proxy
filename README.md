@@ -17,7 +17,7 @@
   <p align="center">
     A minimal Docker-based SOCKS5 proxy tunnel over SSH using <code>autossh</code>
     <br />
-    <a href="https://github.com/capcom6/socks-over-ssh-proxy"><strong>Explore the docs »</strong></a>
+    <a href="https://github.com/capcom6/socks-over-ssh-proxy"><strong>Explore the docs >></strong></a>
     <br />
     <br />
     <a href="https://github.com/capcom6/socks-over-ssh-proxy">View on GitHub</a>
@@ -41,6 +41,7 @@
   - [Docker Secrets](#docker-secrets)
   - [Docker Compose](#docker-compose)
   - [Build from Source](#build-from-source)
+- [Security](#security)
 - [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [License](#license)
@@ -57,10 +58,10 @@ A minimal Docker image that establishes a SOCKS5 proxy tunnel over SSH using [au
 
 Key features:
 
-- **Auto-reconnecting** — uses `autossh` to monitor and restart the SSH tunnel on failure
-- **Minimal footprint** — built on Alpine Linux
-- **Convenience** — runs as a non-root user, accepts SSH host keys automatically for hassle-free first connection
-- **Docker-native** — configure via environment variables and Docker secrets
+- **Auto-reconnecting** - uses `autossh` to monitor and restart the SSH tunnel on failure
+- **Minimal footprint** - built on Alpine Linux
+- **Convenience** - runs as a non-root user, accepts SSH host keys automatically for hassle-free first connection
+- **Docker-native** - configure via environment variables and Docker secrets
 
 > **Host key verification**: The container uses `StrictHostKeyChecking=accept-new` and stores known hosts in `/tmp/known_hosts`, so host keys are auto-accepted on first connection but not persisted across restarts. To pin a known host key, mount a pre-populated `known_hosts` file:
 > ```sh
@@ -92,8 +93,10 @@ Key features:
 ### Quick Start
 
 ```sh
+# Bind inside the container so the published port is reachable; publishing on 127.0.0.1 keeps it host-only
 docker run -d \
-  -p 1080:1080 \
+  -p 127.0.0.1:1080:1080 \
+  -e SOCKS_BIND_ADDRESS=0.0.0.0 \
   -e SSH_HOST=example.com \
   -e SSH_USER=proxyuser \
   -v $HOME/.ssh/id_rsa:/run/secrets/socks_ssh_key:ro \
@@ -111,19 +114,30 @@ This starts a SOCKS5 proxy on `localhost:1080` that tunnels traffic through `exa
 
 ### Environment Variables
 
-| Variable   | Required | Description                      | Default |
-| ---------- | -------- | -------------------------------- | ------- |
-| `SSH_HOST` | Yes      | Remote SSH server hostname or IP | —       |
-| `SSH_USER` | Yes      | SSH username                     | —       |
-| `SSH_PORT` | No       | Remote SSH server port           | `22`    |
+| Variable             | Required | Description                                                                                               | Default     |
+| -------------------- | -------- | --------------------------------------------------------------------------------------------------------- | ----------- |
+| `SSH_HOST`           | Yes      | Remote SSH server hostname or IP                                                                          | (none)      |
+| `SSH_USER`           | Yes      | Remote SSH username                                                                                       | (none)      |
+| `SSH_PORT`           | No       | Remote SSH server port                                                                                    | `22`        |
+| `SOCKS_BIND_ADDRESS` | No       | Address the SOCKS listener binds to inside the container. Use `0.0.0.0` only for intentional LAN exposure | `127.0.0.1` |
 
 ### Docker Secrets
 
 Mount your private SSH key at `/run/secrets/socks_ssh_key` using a bind mount. The key must not have a passphrase.
 
+The container runs as user `proxy` (UID/GID `1000`). A bind mount preserves the key's host ownership, so make the key readable by UID `1000` on the host, for example:
+
+```sh
+chown 1000:1000 $HOME/.ssh/id_rsa
+chmod 600 $HOME/.ssh/id_rsa
+```
+
+Do not make the key world-readable (`chmod 644` or looser). The same ownership requirement applies when using Docker Compose file-based secrets.
+
 ```sh
 docker run -d \
-  -p 1080:1080 \
+  -p 127.0.0.1:1080:1080 \
+  -e SOCKS_BIND_ADDRESS=0.0.0.0 \
   -e SSH_HOST=example.com \
   -e SSH_USER=proxyuser \
   -v $HOME/.ssh/id_rsa:/run/secrets/socks_ssh_key:ro \
@@ -137,8 +151,9 @@ services:
   socks-proxy:
     image: ghcr.io/capcom6/socks-over-ssh-proxy:latest
     ports:
-      - "1080:1080"
+      - "127.0.0.1:1080:1080"
     environment:
+      SOCKS_BIND_ADDRESS: 0.0.0.0
       SSH_HOST: example.com
       SSH_USER: proxyuser
     secrets:
@@ -159,13 +174,28 @@ docker build -t socks-over-ssh-proxy .
 
 
 
+<!-- SECURITY -->
+## Security
+
+The SOCKS proxy is **unauthenticated**: any client that can reach the bound port can route traffic through it, and that traffic egresses from the SSH server's IP address, not your own.
+
+By default the listener binds to `127.0.0.1` inside the container, so the proxy is reachable only from within the container. Publishing the port on all host interfaces exposes it to your LAN, so only do that when every host on that network is trusted.
+
+The examples in this README publish on the host loopback (`127.0.0.1:1080:1080`) and set `SOCKS_BIND_ADDRESS=0.0.0.0` so the listener can accept the published traffic while the publish stays host-only.
+
+To expose the proxy to other machines intentionally, set `SOCKS_BIND_ADDRESS=0.0.0.0` only after reviewing the trust and firewall implications: anyone who can reach the published port can route traffic through the SSH tunnel. Prefer restricting exposure, for example by publishing only on the host loopback (`127.0.0.1:1080:1080`) or with firewall rules that limit which clients may connect.
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
+
+
 <!-- ROADMAP -->
 ## Roadmap
 
-- [x] Initial release — basic SOCKS5 tunnel via autossh
+- [x] Initial release - basic SOCKS5 tunnel via autossh
 - [ ] Add health check endpoint
 - [ ] Multi-architecture builds (arm64, amd64)
-- [ ] Configurable SOCKS bind address
+- [x] Configurable SOCKS bind address
 
 See the [open issues](https://github.com/capcom6/socks-over-ssh-proxy/issues) for a full list of proposed features and known issues.
 
